@@ -27,11 +27,10 @@ outroot = 'spex'
 # temperature grid: uncomment line and comment other to select
 
 # default APEC temperature grid
-# note: SPEX seems to hang indefinitely with these very low temperatures
-#temperatures = np.logspace(np.log10(0.0008617385), np.log10(86.17385),51)
+temperatures = np.logspace(np.log10(0.0008617385), np.log10(86.17385),51)
 
 # increased numbers of sample points between 0.01 and 100 keV
-temperatures = np.logspace(np.log10(0.01), np.log10(100),201)
+#temperatures = np.logspace(np.log10(0.01), np.log10(100),201)
 
 # for testing
 #temperatures = np.linspace(1,5)
@@ -94,7 +93,7 @@ for num, numeral in enumerate(roman_numerals):
     roman_to_number[numeral] = num+1
 
 # abundance to use to get continuua of elements more exactly
-continuum_mult = 10000.
+continuum_mult = 1000.
 
 def deleteFile(f):
     """For debugging."""

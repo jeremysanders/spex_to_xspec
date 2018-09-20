@@ -1,10 +1,10 @@
-# dump_spex
+# spex_to_xspec
 
-dump_spex is a Python script to generate an APEC-format table model (http://www.atomdb.org/) from the SPEX spectral modelling and fitting code  (https://www.sron.nl/astrophysics-spex). This allows the user to load a SPEX-generated plasma model into Xspec (https://heasarc.gsfc.nasa.gov/lheasoft/xanadu/xspec) to use the same environment for both APEC and SPEX spectral fitting.
+spex_to_xspec is a Python script to generate an APEC-format table model (http://www.atomdb.org/) from the SPEX spectral modelling and fitting code  (https://www.sron.nl/astrophysics-spex). This allows the user to load a SPEX-generated plasma model into Xspec (https://heasarc.gsfc.nasa.gov/lheasoft/xanadu/xspec) to use the same environment for both APEC and SPEX spectral fitting.
 
 ## Getting Started
 
-Download the dump_spex.py script. You will need to setup the SPEX environment.
+Download the spex_to_xspec.py script. You will need to setup the SPEX environment.
 
 There are some adjustable parameters you can modify at the top of the script.  These include the default filename root part (to be used in Xspec when loading the APEC table), the list of temperatures to tabulate the SPEX model for and the continuum energy binning.
 
