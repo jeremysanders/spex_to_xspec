@@ -10,7 +10,7 @@ There are some adjustable parameters you can modify at the top of the script.  T
 
 When you are ready, run the script using python.
 
-Note that the default temperature grid (0.01 to 100 keV in 201 log bins) is slow and takes a long time to run. The output files are currently very large (1GB+), as every line in the energy range (by default 0.05 to 15 keV in 300 log bins) is dumped. You can compress the output files with gzip and Xspec is able to read them.
+By default the temperature grid is the same as the APEC model. There is a higher resolution temperature grid (0.01 to 100 keV in 201 log bins) option which is slower. The output files are currently very large (1GB+), as every line in the energy range (by default 0.05 to 15 keV in 300 log bins) is dumped. You can compress the output files with gzip and Xspec is able to read them.
 
 Note that the program dumps out a lot of data into temporary files (called tmp_*) which are later interpreted. If you stop the program mid way through, you will need to clean up these files.
 

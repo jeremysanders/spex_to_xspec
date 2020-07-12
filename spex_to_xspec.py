@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Program to dump out spex mekal model at various temperature grid points
 # The lines and continuum are then gathered up, and stored in an apec-format
@@ -8,10 +8,9 @@
 
 # Version 2.0 (2018-07-31): Support SPEX 3.04
 
-from __future__ import print_function, division
-
 import os
 import subprocess
+import os.path
 
 import numpy as np
 from astropy.io import fits
@@ -23,23 +22,38 @@ from astropy.io import fits
 # creates outroot_(line|coco).fits
 outroot = 'spex'
 
-####
+##########
 # temperature grid: uncomment line and comment other to select
 
 # default APEC temperature grid
-temperatures = np.logspace(np.log10(0.0008617385), np.log10(86.17385),51)
+#temperatures = np.logspace(np.log10(0.0008617385), np.log10(86.17385),51)
 
 # increased numbers of sample points between 0.01 and 100 keV
-#temperatures = np.logspace(np.log10(0.01), np.log10(100),201)
+temperatures = np.logspace(np.log10(0.01), np.log10(100), 201)
 
 # for testing
-#temperatures = np.linspace(1,5)
-####
+#temperatures = np.array([1,2])
+##########
 
-# energy range and stepping to sample continuua (log spacing used)
+# energy range and stepping to sample continuum (log spacing used)
 contminenergy = 0.05
 contmaxenergy = 15.
 contenergysteps = 300
+
+# energy range and stepping to sample pseudo-continuum (log spacing used)
+pcontminenergy = 0.05
+pcontmaxenergy = 15.
+pcontenergysteps = 2048
+
+# lines lower than this flux (photon cm^3/s) are put into a
+# pseudo-continuum rather than stored separately.
+
+# The APEC default is 1e-20, but this produces many fewer lines using
+# this for SPEX
+minepsilon = 1e-22
+
+# where to put output files
+tmpdir = 'workdir'
 
 ###########################################################
 
@@ -47,7 +61,7 @@ contenergysteps = 300
 try:
     spexroot = os.environ['SPEX90']
 except KeyError:
-    raise RuntimeError('Set the SPEX90 to point to your SPEX installation')
+    raise RuntimeError('Please set SPEX90 and initialize the SPEX environment')
 
 # executable to use to run spex
 spexexecutable = os.path.join(spexroot, 'bin/spex')
@@ -79,6 +93,9 @@ apec_elements = [
     'He', 'C', 'N', 'O', 'Ne', 'Mg', 'Al', 'Si', 'S', 'Ar',
     'Ca', 'Fe', 'Ni']
 
+# with hydrogen
+all_elements = ['H']+apec_elements
+
 # roman numerals (bah)
 roman_numerals = (
     'I', 'II', 'III', 'IV', 'V', 'VI', 'VII',
@@ -95,9 +112,17 @@ for num, numeral in enumerate(roman_numerals):
 # abundance to use to get continuua of elements more exactly
 continuum_mult = 1000.
 
+class Line:
+    def __init__(self, element, ion, wavelength, epsilon, energy):
+        self.element = element
+        self.ion = ion
+        self.wavelength = wavelength
+        self.epsilon = epsilon
+        self.energy = energy
+
 def deleteFile(f):
     """For debugging."""
-    os.unlink(f)
+    #os.unlink(f)
 
 def writeScriptElements(fobj, elements, val):
     """Write commands to set abundance to val."""
@@ -116,7 +141,7 @@ def writeScriptLines(fobj, T):
     print('calc', file=fobj)
 
     # dump out lines
-    outfile = 'tmp_lines_T%010f' % T
+    outfile = os.path.join(tmpdir, 'tmp_lines_T%010f' % T)
     print('ascdump file %s 1 1 line' % outfile, file=fobj)
 
     writeScriptElements(fobj, apec_elements, 0)
@@ -126,13 +151,13 @@ def writeScriptContinuua(fobj, T):
     print('par t val %e' % T, file=fobj)
 
     print('calc', file=fobj)
-    outfile = 'tmp_conti_T%010f_%s' % (T, 'H')
+    outfile = os.path.join(tmpdir, 'tmp_conti_T%010f_%s' % (T, 'H'))
     print('ascdump file %s 1 1 tcl' % outfile, file=fobj)
 
     for el in apec_elements:
         writeScriptElements(fobj, (el,), continuum_mult)
         print('calc', file=fobj)
-        outfile = 'tmp_conti_T%010f_%s' % (T, el)
+        outfile = os.path.join(tmpdir, 'tmp_conti_T%010f_%s' % (T, el))
         print('ascdump file %s 1 1 tcl' % outfile, file=fobj)
         writeScriptElements(fobj, (el,), 0)
 
@@ -157,13 +182,65 @@ def generateOutput():
     """Process all the temperatures and generate output files."""
 
     for T in temperatures:
-        fname = 'tmp_spex_T%010f.script' % T
+        fname = os.path.join(tmpdir, 'tmp_spex_T%010f.script' % T)
         with open(fname, 'w') as fout:
             writeScript(fout, T)
 
         with open(fname) as fin:
             subprocess.call([spexexecutable], stdin=fin)
         deleteFile(fname)
+
+def makeLineHDU(lines, T, totflux):
+    """Given lines list, produce line HDU.
+
+    lines is (element, ion, wavelength, epsilon, energy) list."""
+
+    # sort lines by element and ion and energy
+    lines.sort(key=lambda x: (x.element, x.ion, 1/x.wavelength))
+
+    # construct up FITS table to APEC format
+    col_lambda = fits.Column(
+        name='Lambda', format='1E', unit='A',
+        array=[i.wavelength for i in lines])
+    col_lambda_err = fits.Column(
+        name='Lambda_Err', format='1E', unit='A',
+        array=np.zeros( (len(lines),) ) + np.nan)
+    col_epsilon = fits.Column(
+        name='Epsilon', format='1E',
+        unit='photons cm^3 s^-1',
+        array=[v.epsilon for v in lines])
+    col_epsilon_err = fits.Column(
+        name='Epsilon_Err', format='1E',
+        unit='photons cm^3 s^-1',
+        array=np.zeros((len(lines),)) + np.nan)
+    col_element = fits.Column(
+        name='Element', format='1J',
+        array=[i.element for i in lines])
+    col_ion = fits.Column(
+        name='Ion', format='1J',
+        array=[i.ion for i in lines])
+
+    col_upperlev = fits.Column(
+        name='UpperLev', format='1J',
+        array=np.zeros((len(lines),)) + 2)
+    col_lowerlev = fits.Column(
+         name='LowerLev', format='1J',
+         array=np.zeros((len(lines),)) + 1)
+
+    tabhdu = fits.BinTableHDU.from_columns([
+        col_lambda, col_lambda_err, col_epsilon,
+        col_epsilon_err, col_element, col_ion,
+        col_upperlev, col_lowerlev])
+
+    tabhdu.name = 'EMISSIVITY'
+    h = tabhdu.header
+    h['HIERARCH TEMPERATURE'] = T*keV_K
+    h['XTEMP'] = T
+
+    # fixme wrong below (erg not photon)
+    h['TOT_LINE'] = totflux
+    h['N_LINES'] = len(lines)
+    return tabhdu
 
 def interpretDumpedLines(T):
     """Interpret dumped lines file.
@@ -174,9 +251,10 @@ def interpretDumpedLines(T):
     print('Interpreting dumped lines for T=%g' % T)
 
     totflux = 0.
-    elements = {}
+    elements = set()
+    weak_lines = []
     lines = []
-    outfile = 'tmp_lines_T%010f.asc' % T
+    outfile = os.path.join(tmpdir, 'tmp_lines_T%010f.asc' % T)
     for line in open(outfile):
         p = line.strip().split()
         # numerical line
@@ -188,65 +266,30 @@ def interpretDumpedLines(T):
             energy_keV = float( line[87:100] )
 
             # convert from total photon flux to normalised photon flux
-            strength = float( line[117:126] ) / norm_factor_cm3
-
-            # keep track of total flux in ergs
-            totflux += energy_keV*keV_erg*strength
+            epsilon = float( line[117:126] ) / norm_factor_cm3
 
             # skip lines out of energy range
             if energy_keV<contminenergy or energy_keV>contmaxenergy:
                 continue
 
-            lines.append( (element, ion, wavelength, strength) )
-            elements[element] = True
+            line = Line(element, ion, wavelength, epsilon, energy_keV)
+
+            if epsilon > minepsilon:
+                # keep track of total flux in ergs
+                totflux += energy_keV*keV_erg*epsilon
+
+                elements.add(element)
+                lines.append(line)
+            else:
+                weak_lines.append(line)
+
     deleteFile(outfile)
 
-    # sort lines by element and ion and energy
-    lines.sort(key=lambda x: (x[0], x[1], 1./x[2]))
+    print('T=%g, %i strong lines, %i weak lines' % (
+        T, len(lines), len(weak_lines)))
 
-    # construct up FITS table to APEC format
-    col_lambda = fits.Column(
-        name='Lambda', format='1E', unit='A',
-        array=[i[2] for i in lines])
-    col_lambda_err = fits.Column(
-        name='Lambda_Err', format='1E', unit='A',
-        array=np.zeros( (len(lines),) ) + np.nan)
-    col_epsilon = fits.Column(
-        name='Epsilon', format='1E',
-        unit='photons cm^3 s^-1',
-        array=[i[3] for i in lines])
-    col_epsilon_err = fits.Column(
-        name='Epsilon_Err', format='1E',
-        unit='photons cm^3 s^-1',
-        array=np.zeros((len(lines),)) + np.nan)
-    col_element = fits.Column(
-        name='Element', format='1J',
-        array=[i[0] for i in lines])
-    col_ion = fits.Column(
-        name='Ion', format='1J',
-        array=[i[1] for i in lines])
-
-    col_upperlev = fits.Column(
-        name='UpperLev', format='1J',
-        array=np.zeros((len(lines),)) + 2)
-    col_lowerlev = fits.Column(
-         name='LowerLev', format='1J',
-         array=np.zeros((len(lines),)) + 1)
-
-    tabhdu = fits.BinTableHDU.from_columns([
-            col_lambda, col_lambda_err, col_epsilon,
-            col_epsilon_err, col_element, col_ion,
-            col_upperlev, col_lowerlev])
-
-    tabhdu.name = 'EMISSIVITY'
-    h = tabhdu.header
-    h['HIERARCH TEMPERATURE'] = T*keV_K
-    h['XTEMP'] = T
-
-    # fixme wrong below (erg not photon)
-    h['TOT_LINE'] = totflux
-    h['N_LINES'] = len(lines)
-    return tabhdu, len(lines), len(elements)
+    tabhdu = makeLineHDU(lines, T, totflux)
+    return tabhdu, len(lines), len(elements), weak_lines
 
 def readContinuum(filename):
     """Take spex dumped model spectrum file, and extract continuum."""
@@ -260,16 +303,17 @@ def readContinuum(filename):
     return (np.array(outenergy), np.array(outval))
 
 def interpretDumpedContinuum(T):
-    """Interpret dumped continuum file."""
+    """Interpret dumped continuum file.
+    """
 
     print('Interpreting dumped continuum for T=%g' % T)
 
     # read in continum from each file
     continuua = {}
 
-    allelements = ['H']+apec_elements
-    for element in allelements:
-        filename = 'tmp_conti_T%010f_%s.asc' % (T, element)
+    for element in all_elements:
+        filename = os.path.join(
+            tmpdir, 'tmp_conti_T%010f_%s.asc' % (T, element))
         energy, vals = readContinuum(filename)
         continuua[element] = vals
         deleteFile(filename)
@@ -281,43 +325,44 @@ def interpretDumpedContinuum(T):
         continuua[element] /= continuum_mult
 
     # construct table
+    contformat = '%iE' % contenergysteps
     col_element = fits.Column(
         name='Z', format='1J',
-        array=[element_nums[i] for i in allelements])
+        array=[element_nums[i] for i in all_elements])
     col_rmJ = fits.Column(
-        name='rmJ', format='1J', array=np.zeros(len(allelements)))
+        name='rmJ', format='1J', array=np.zeros(len(all_elements)))
     col_N_Cont = fits.Column(
         name='N_Cont', format='1J',
-        array= [len(energy)]*len(allelements))
+        array= [contenergysteps]*len(all_elements))
     col_E_Cont = fits.Column(
-        name='E_Cont', format='%iE' % len(energy),
-        unit='keV', array=np.resize(energy, (len(allelements), len(energy))))
+        name='E_Cont', format=contformat,
+        unit='keV', array=np.resize(
+            energy, (len(all_elements), contenergysteps)))
 
     col_Continuum = fits.Column(
-        name='Continuum', format='%iE' % len(energy),
+        name='Continuum', format=contformat,
         unit='photons cm^3 s^-1 keV^-1',
-        array=[continuua[i] for i in allelements])
+        array=[continuua[i] for i in all_elements])
     col_Cont_Err = fits.Column(
-        name='Cont_Err', format='%iE' % len(energy),
+        name='Cont_Err', format=contformat,
         unit='photons cm^3 s^-1 keV^-1',
-        array=np.zeros( (len(allelements), len(energy)) ))
+        array=np.zeros( (len(all_elements), contenergysteps) ))
 
-    # we make all the pseudo continuua zero
+    # create zero pseudo-continuum to fill in later
+    pcontformat = '%iE' % pcontenergysteps
     col_N_Pseudo = fits.Column(
         name='N_Pseudo', format='1J',
-        array=np.zeros(len(allelements)))
-
-    # can't get below to work, unless I set array size to 2 columns
-    # doesn't seem to matter, though
+        array= [pcontenergysteps]*len(all_elements))
     col_E_Pseudo = fits.Column(
-        name='E_Pseudo', format='2E',
-        array=np.zeros( (len(allelements), 2) ))
+        name='E_Pseudo', format=pcontformat,
+        unit='keV', array=np.resize(
+            energy, (len(all_elements), pcontenergysteps)))
     col_Pseudo = fits.Column(
-        name='Pseudo', format='2E',
-        array=np.zeros( (len(allelements), 2) ))
+        name='Pseudo', format=pcontformat,
+        array=np.zeros( (len(all_elements), pcontenergysteps) ))
     col_Pseudo_Err = fits.Column(
-        name='Pseudo_Err', format='2E',
-        array=np.zeros( (len(allelements), 2) ))
+        name='Pseudo_Err', format=pcontformat,
+        array=np.zeros( (len(all_elements), pcontenergysteps) ))
 
     tabhdu = fits.BinTableHDU.from_columns([
         col_element, col_rmJ,
@@ -333,11 +378,16 @@ def interpretDumpedContinuum(T):
     h['DENSITY'] = 1.0
     # sum flux
     totcoco = 0.
-    for i in allelements:
+    for i in all_elements:
         totcoco += continuua[i].sum()
     h['TOT_COCO'] = totcoco
 
-    return (tabhdu, len(allelements), len(energy)*len(allelements), 0)
+    return (
+        tabhdu,
+        len(all_elements),
+        contenergysteps*len(all_elements),
+        pcontenergysteps*len(all_elements)
+    )
 
 def interpretAllLines():
     """Interpret spex dumped spectra."""
@@ -346,11 +396,13 @@ def interpretAllLines():
     hdus = []
     Nelement = []
     Nline = []
+    weaklinelist = []
     for T in temperatures:
-        hdu, numlines, numelements = interpretDumpedLines(T)
+        hdu, numlines, numelements, weaklines = interpretDumpedLines(T)
         Nline.append(numlines)
         Nelement.append(numelements)
         hdus.append(hdu)
+        weaklinelist.append(weaklines)
 
     # construct HDU describing parameters
     col_kT = fits.Column(
@@ -373,7 +425,27 @@ def interpretAllLines():
     hdulist = fits.HDUList([fits.PrimaryHDU(), tabhdu] + hdus)
     hdulist.writeto('%s_line.fits' % outroot, overwrite=True)
 
-def interpretAllContinuum():
+    return weaklinelist
+
+def computePseudoContinuum(hdu, weaklines):
+    """Compute pseudo continuum and enter into continuum HDU."""
+
+    energyedges = np.logspace(
+        np.log10(pcontminenergy), np.log10(pcontmaxenergy),
+        pcontenergysteps+1)
+
+    for i, element in enumerate(all_elements):
+        elidx = element_nums[element]
+        energies = [line.energy for line in weaklines if line.element==elidx]
+        epsilons = [line.epsilon for line in weaklines if line.element==elidx]
+
+        summedlines, edgesout = np.histogram(
+            energies, weights=epsilons, bins=energyedges)
+        # divide by bin width to convert to photon cm^3/s/keV
+        flux = summedlines / (energyedges[1:]-energyedges[:-1])
+        hdu.data.field('Pseudo')[i,:] = flux
+
+def interpretAllContinuum(weaklinelist):
     """Build up continuum output file."""
 
     # make continuum HDUs for each temperature
@@ -381,8 +453,9 @@ def interpretAllContinuum():
     NElement = []
     NCont = []
     NPseudo = []
-    for T in temperatures:
+    for T, weaklines in zip(temperatures, weaklinelist):
         hdu, numelem, numcont, numpseudo = interpretDumpedContinuum(T)
+        computePseudoContinuum(hdu, weaklines)
         hdus.append(hdu)
         NElement.append(numelem)
         NCont.append(numcont)
@@ -405,7 +478,8 @@ def interpretAllContinuum():
         name='NPseudo', format='1J',
         array=NPseudo)
     tabhdu = fits.BinTableHDU.from_columns([
-        col_kT, col_EDensity, col_NElement, col_NCont, col_NPseudo])
+        col_kT, col_EDensity, col_NElement, col_NCont, col_NPseudo
+    ])
     tabhdu.name = 'PARAMETERS'
 
     # make output file containing the continuum
@@ -415,8 +489,8 @@ def interpretAllContinuum():
 def main():
     """Main routine."""
     generateOutput()
-    interpretAllLines()
-    interpretAllContinuum()
+    weaklinelist = interpretAllLines()
+    interpretAllContinuum(weaklinelist)
 
 if __name__ == '__main__':
     main()
