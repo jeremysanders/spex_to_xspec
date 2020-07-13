@@ -30,10 +30,10 @@ outroot = 'spex'
 temperatures = np.logspace(np.log10(0.0008617385), np.log10(86.17385),51)
 
 # increased numbers of sample points between 0.01 and 100 keV
-# temperatures = np.logspace(np.log10(0.01), np.log10(100), 201)
+#temperatures = np.logspace(np.log10(0.01), np.log10(100), 201)
 
 # for quick testing
-temperatures = np.array([1,2,4,8])
+#temperatures = np.array([1,2,4,8])
 ##############
 
 # energy range and stepping to sample continuum (log spacing used)
@@ -52,6 +52,7 @@ pcontenergysteps = 2048
 # produces many fewer lines using this for SPEX. Set to None to
 # disable putting weak lines into a pseudo-continuum.
 minepsilon = 1e-22
+#minepsilon = None
 
 # where to put output files
 tmpdir = 'workdir'
