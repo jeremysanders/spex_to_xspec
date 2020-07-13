@@ -16,25 +16,25 @@ import os.path
 import numpy as np
 from astropy.io import fits
 
-#####################################################################
+###############################################################################
 # Adjustable parameters
 
 # output root (using spex version) for apec format filenames
 # creates outroot_(line|coco).fits
 outroot = 'spex'
 
-##########
+##############
 # temperature grid: uncomment line and comment other to select
 
-# default APEC temperature grid
-#temperatures = np.logspace(np.log10(0.0008617385), np.log10(86.17385),51)
+# default APEC temperature grid (I would suggest this is too coarse)
+temperatures = np.logspace(np.log10(0.0008617385), np.log10(86.17385),51)
 
 # increased numbers of sample points between 0.01 and 100 keV
-temperatures = np.logspace(np.log10(0.01), np.log10(100), 201)
+# temperatures = np.logspace(np.log10(0.01), np.log10(100), 201)
 
-# for testing
-# temperatures = np.array([1,2,4,8])
-##########
+# for quick testing
+temperatures = np.array([1,2,4,8])
+##############
 
 # energy range and stepping to sample continuum (log spacing used)
 contminenergy = 0.05
@@ -46,18 +46,18 @@ pcontminenergy = 0.05
 pcontmaxenergy = 15.
 pcontenergysteps = 2048
 
-# lines lower than this flux (photon cm^3/s) are put into a
-# pseudo-continuum rather than stored separately.
-
-# The APEC default is 1e-20, but this produces many fewer lines using
-# this for SPEX
-# (set to None to disable putting weak lines into a pseudo-continuum)
+# Limit for storing lines separately to save space. Lines lower than
+# this flux (photon cm^3/s) are put into a pseudo-continuum rather
+# than stored separately.  The APEC default is 1e-20, but this
+# produces many fewer lines using this for SPEX. Set to None to
+# disable putting weak lines into a pseudo-continuum.
 minepsilon = 1e-22
 
 # where to put output files
 tmpdir = 'workdir'
 
-###########################################################
+# end adjustable parameters
+###############################################################################
 
 # location of spex installation
 try:
@@ -69,7 +69,7 @@ except KeyError:
 spexexecutable = os.path.join(spexroot, 'bin/spex')
 
 # for checking for numerical data
-digits = '0123456789'
+digits = set('0123456789')
 
 # conversions
 keV_K = 11.6048e6
@@ -83,7 +83,8 @@ elements = (
     'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O',
     'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P',
     'S', 'Cl', 'Ar', 'K', 'Ca', 'Sc', 'Ti',
-    'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn')
+    'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn',
+)
 
 # create dict to convert element names into numbers
 element_nums = {}
@@ -93,18 +94,20 @@ for num, element in enumerate(elements):
 # these are the apec elements
 apec_elements = [
     'He', 'C', 'N', 'O', 'Ne', 'Mg', 'Al', 'Si', 'S', 'Ar',
-    'Ca', 'Fe', 'Ni']
+    'Ca', 'Fe', 'Ni',
+]
 
 # with hydrogen
 all_elements = ['H']+apec_elements
 
-# roman numerals (bah)
+# roman numerals (which come out of spex)
 roman_numerals = (
     'I', 'II', 'III', 'IV', 'V', 'VI', 'VII',
     'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV',
     'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX',
     'XXI', 'XXII', 'XXIII', 'XXIV', 'XXV', 'XXVI', 'XXVII',
-    'XXVIII', 'XXIX', 'XXX')
+    'XXVIII', 'XXIX', 'XXX'
+)
 
 # dict to convert numerals to numbers
 roman_to_number = {}
@@ -124,7 +127,7 @@ class Line:
 
 def deleteFile(f):
     """For debugging."""
-    #os.unlink(f)
+    os.unlink(f)
 
 def writeScriptElements(fobj, elements, val):
     """Write commands to set abundance to val."""
@@ -258,8 +261,8 @@ def interpretDumpedLines(T):
     lines = []
     outfile = os.path.join(tmpdir, 'tmp_lines_T%010f.asc' % T)
     for rline in open(outfile):
-        # numerical line
         if rline.strip()[:1] in digits:
+            # data lines start with numbers
             # horribly, have to hard code in column numbers here
             element = element_nums[rline[9:12].strip()]
             ion = roman_to_number[ rline[12:17].strip() ]
