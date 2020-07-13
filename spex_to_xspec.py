@@ -4,9 +4,10 @@
 # The lines and continuum are then gathered up, and stored in an apec-format
 # table model for xspec
 
-# Jeremy Sanders 2005-2018
+# Jeremy Sanders 2005-2020
 
 # Version 2.0 (2018-07-31): Support SPEX 3.04
+# Version 2.1 (2020-07-12): Pseudo-continuum implementation
 
 import os
 import subprocess
@@ -32,13 +33,13 @@ outroot = 'spex'
 temperatures = np.logspace(np.log10(0.01), np.log10(100), 201)
 
 # for testing
-#temperatures = np.array([1,2])
+# temperatures = np.array([1,2,4,8])
 ##########
 
 # energy range and stepping to sample continuum (log spacing used)
 contminenergy = 0.05
 contmaxenergy = 15.
-contenergysteps = 300
+contenergysteps = 1024
 
 # energy range and stepping to sample pseudo-continuum (log spacing used)
 pcontminenergy = 0.05
@@ -50,6 +51,7 @@ pcontenergysteps = 2048
 
 # The APEC default is 1e-20, but this produces many fewer lines using
 # this for SPEX
+# (set to None to disable putting weak lines into a pseudo-continuum)
 minepsilon = 1e-22
 
 # where to put output files
@@ -255,18 +257,17 @@ def interpretDumpedLines(T):
     weak_lines = []
     lines = []
     outfile = os.path.join(tmpdir, 'tmp_lines_T%010f.asc' % T)
-    for line in open(outfile):
-        p = line.strip().split()
+    for rline in open(outfile):
         # numerical line
-        if p[0][0] in digits:
+        if rline.strip()[:1] in digits:
             # horribly, have to hard code in column numbers here
-            element = element_nums[line[9:12].strip()]
-            ion = roman_to_number[ line[12:17].strip() ]
-            wavelength = float( line[102:115] )
-            energy_keV = float( line[87:100] )
+            element = element_nums[rline[9:12].strip()]
+            ion = roman_to_number[ rline[12:17].strip() ]
+            wavelength = float( rline[102:115] )
+            energy_keV = float( rline[87:100] )
 
             # convert from total photon flux to normalised photon flux
-            epsilon = float( line[117:126] ) / norm_factor_cm3
+            epsilon = float( rline[117:126] ) / norm_factor_cm3
 
             # skip lines out of energy range
             if energy_keV<contminenergy or energy_keV>contmaxenergy:
@@ -274,7 +275,7 @@ def interpretDumpedLines(T):
 
             line = Line(element, ion, wavelength, epsilon, energy_keV)
 
-            if epsilon > minepsilon:
+            if minepsilon is None or epsilon > minepsilon:
                 # keep track of total flux in ergs
                 totflux += energy_keV*keV_erg*epsilon
 
@@ -355,8 +356,8 @@ def interpretDumpedContinuum(T):
         array= [pcontenergysteps]*len(all_elements))
     col_E_Pseudo = fits.Column(
         name='E_Pseudo', format=pcontformat,
-        unit='keV', array=np.resize(
-            energy, (len(all_elements), pcontenergysteps)))
+        unit='keV',
+        array=np.zeros( (len(all_elements), pcontenergysteps) ))
     col_Pseudo = fits.Column(
         name='Pseudo', format=pcontformat,
         array=np.zeros( (len(all_elements), pcontenergysteps) ))
@@ -444,6 +445,7 @@ def computePseudoContinuum(hdu, weaklines):
         # divide by bin width to convert to photon cm^3/s/keV
         flux = summedlines / (energyedges[1:]-energyedges[:-1])
         hdu.data.field('Pseudo')[i,:] = flux
+        hdu.data.field('E_Pseudo')[i,:] = 0.5*(energyedges[1:]+energyedges[:-1])
 
 def interpretAllContinuum(weaklinelist):
     """Build up continuum output file."""
