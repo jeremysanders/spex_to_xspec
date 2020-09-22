@@ -8,10 +8,12 @@
 
 # Version 2.0 (2018-07-31): Support SPEX 3.04
 # Version 2.1 (2020-07-12): Pseudo-continuum implementation
+# Version 2.2 (2020-09-22): Fixes for SPEX 3.06. Change default binning.
 
 import os
 import subprocess
 import os.path
+import re
 
 import numpy as np
 from astropy.io import fits
@@ -26,10 +28,12 @@ outroot = 'spex'
 ##############
 # temperature grid: uncomment line and comment other to select
 
-# default APEC temperature grid (I would suggest this is too coarse)
-temperatures = np.logspace(np.log10(0.0008617385), np.log10(86.17385),51)
+# old APEC temperature grid
+#temperatures = np.logspace(np.log10(0.0008617385), np.log10(86.17385), 51)
+# new APEC temperature grid from 3.0.9+ (see http://atomdb.org/interpolation/)
+temperatures = np.logspace(np.log10(0.0008617385), np.log10(86.17385), 201)
 
-# increased numbers of sample points between 0.01 and 100 keV
+# denser gridding between useful 0.01 and 100 keV
 #temperatures = np.logspace(np.log10(0.01), np.log10(100), 201)
 
 # for quick testing
@@ -54,8 +58,8 @@ pcontenergysteps = 2048
 minepsilon = 1e-22
 #minepsilon = None
 
-# where to put output files
-tmpdir = 'workdir'
+# where to put output files (workdir by default)
+tmpdir = os.environ.get('WORKDIR', 'workdir')
 
 # end adjustable parameters
 ###############################################################################
@@ -296,6 +300,21 @@ def interpretDumpedLines(T):
     tabhdu = makeLineHDU(lines, T, totflux)
     return tabhdu, len(lines), len(elements), weak_lines
 
+def cnvtContNum(s):
+    """Sometimes scientific notation values in spex output are expressed
+    without an 'e', e.g.  5.62495-100, so we need to convert by hand.
+    """
+    try:
+        v = float(s)
+    except ValueError:
+        m = re.match('([0-9.]+)([+-][0-9]{3})', s)
+        if not m:
+            raise ValueError
+        else:
+            a, b = m.groups()
+            v = float(a)*10**float(b)
+    return v
+
 def readContinuum(filename):
     """Take spex dumped model spectrum file, and extract continuum."""
     outenergy = []
@@ -304,7 +323,7 @@ def readContinuum(filename):
         p = line.strip().split()
         if p[0][0] in digits:
             outenergy.append(float(p[1]))
-            outval.append(float(p[2]) * 1e44 / norm_factor_cm3)
+            outval.append(cnvtContNum(p[2]) * 1e44 / norm_factor_cm3)
     return (np.array(outenergy), np.array(outval))
 
 def interpretDumpedContinuum(T):

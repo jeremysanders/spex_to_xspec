@@ -4,17 +4,17 @@ spex_to_xspec is a Python program to generate an APEC-format table model (http:/
 
 ## Getting Started
 
-Download the spex_to_xspec.py script. You will need to setup the SPEX environment (set the `SPEX90` environment variable and source its initialisation scripts).
+Download the spex_to_xspec.py script (either using `git clone` or download the ZIP file in github). You will need to setup the SPEX environment (set the `SPEX90` environment variable and source its initialisation scripts).
 
 There are some adjustable parameters you can modify at the top of the script.  These include the default filename root part (to be used in Xspec when loading the APEC table), the list of temperatures to tabulate the SPEX model for and the continuum energy binning.
 
 When you are ready, run the script using python.
 
-By default the temperature grid is the same as the APEC model. There is a higher resolution temperature grid (0.01 to 100 keV in 201 log bins) option which is slower. The output files are currently very large (1GB+), as every line in the energy range (by default 0.05 to 15 keV in 300 log bins) is dumped. You can compress the output files with gzip and Xspec is able to read them.
+By default the temperature grid is the same as the APEC model (in apec-3.0.9+; 201 bins in log space between 0.00086 and 86 keV). I suggest doing an initial run with a smaller grid to make sure everything is ok, as a full run can take considerable time (several hours, depending on CPU) and several tens of GB disk space. You can compress the output files with gzip and Xspec is able to read them.
 
-By default weak lines are dumped into a "pseudo-continuum" to save space. You can control the line strength where this happens by modifying the variable `minepsilon`. This can be set to `None` to disable putting these lines into a pseduo-continuum.
+By default weak lines are dumped into a "pseudo-continuum" to save space in the output files and improve the speed of the model in Xspec. You can control the line strength where this happens by modifying the variable `minepsilon`. This can be set to `None` to disable putting these lines into a pseduo-continuum.
 
-Note that the program dumps out a lot of data into temporary files in the directory workdir (called tmp_*), which are later interpreted. If you stop the program mid way through, you will need to clean up these files.
+Note that the program dumps out a lot of data into temporary files in the directory workdir (called `tmp_*`), which are later interpreted. If you stop the program mid way through, you will need to clean up these files.
 
 To use the table in xspec use
 ```
@@ -26,7 +26,7 @@ Where `spex` is the root specified at the top of the script.
 
  1. Python 3.3+
  2. Astropy (http://www.astropy.org/)
- 3. SPEX 3.04+ (https://www.sron.nl/astrophysics-spex). 3.04.00 and 3.05.00 have been tested.
+ 3. SPEX 3.04+ (https://www.sron.nl/astrophysics-spex). 3.04.00-3.06.00 have been tested.
 
 ## How it works
 
