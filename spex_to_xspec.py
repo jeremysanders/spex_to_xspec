@@ -4,11 +4,12 @@
 # The lines and continuum are then gathered up, and stored in an apec-format
 # table model for xspec
 
-# Jeremy Sanders 2005-2020
+# Jeremy Sanders 2005-2022
 
 # Version 2.0 (2018-07-31): Support SPEX 3.04
 # Version 2.1 (2020-07-12): Pseudo-continuum implementation
 # Version 2.2 (2020-09-22): Fixes for SPEX 3.06. Change default binning.
+# Version 2.3 (2022-03-08): Fixes for SPEX 3.06.01 (now required). Add trace elements.
 
 import os
 import subprocess
@@ -96,14 +97,12 @@ element_nums = {}
 for num, element in enumerate(elements):
     element_nums[element] = num+1
 
-# these are the apec elements
-apec_elements = [
-    'He', 'C', 'N', 'O', 'Ne', 'Mg', 'Al', 'Si', 'S', 'Ar',
-    'Ca', 'Fe', 'Ni',
-]
+# these are the apec elements (non hydrogen)
+# (note this distinction is historical, as apec used fewer elements)
+apec_elements = elements[1:]
 
 # with hydrogen
-all_elements = ['H']+apec_elements
+all_elements = elements
 
 # roman numerals (which come out of spex)
 roman_numerals = (
@@ -134,6 +133,21 @@ def deleteFile(f):
     """For debugging."""
     os.unlink(f)
 
+def cnvtNum(s):
+    """Sometimes scientific notation values in spex output are expressed
+    without an 'e', e.g.  5.62495-100, so we need to convert by hand.
+    """
+    try:
+        v = float(s)
+    except ValueError:
+        m = re.match('([0-9.]+)([+-][0-9]{3})', s)
+        if not m:
+            raise ValueError
+        else:
+            a, b = m.groups()
+            v = float(a)*10**float(b)
+    return v
+
 def writeScriptElements(fobj, elements, val):
     """Write commands to set abundance to val."""
     for e in elements:
@@ -152,6 +166,8 @@ def writeScriptLines(fobj, T):
 
     # dump out lines
     outfile = os.path.join(tmpdir, 'tmp_lines_T%010f' % T)
+    print('ascdump set flux 0', file=fobj)
+    print('ascdump set range %g:%g unit kev' % (contminenergy, contmaxenergy), file=fobj)
     print('ascdump file %s 1 1 line' % outfile, file=fobj)
 
     writeScriptElements(fobj, apec_elements, 0)
@@ -168,6 +184,7 @@ def writeScriptContinuua(fobj, T):
         writeScriptElements(fobj, (el,), continuum_mult)
         print('calc', file=fobj)
         outfile = os.path.join(tmpdir, 'tmp_conti_T%010f_%s' % (T, el))
+        print('ascdump set range %g:%g unit kev' % (contminenergy, contmaxenergy), file=fobj)
         print('ascdump file %s 1 1 tcl' % outfile, file=fobj)
         writeScriptElements(fobj, (el,), 0)
 
@@ -271,11 +288,11 @@ def interpretDumpedLines(T):
             # horribly, have to hard code in column numbers here
             element = element_nums[rline[9:12].strip()]
             ion = roman_to_number[ rline[12:17].strip() ]
-            wavelength = float( rline[102:115] )
-            energy_keV = float( rline[87:100] )
+            wavelength = cnvtNum( rline[102:115] )
+            energy_keV = cnvtNum( rline[87:100] )
 
             # convert from total photon flux to normalised photon flux
-            epsilon = float( rline[117:126] ) / norm_factor_cm3
+            epsilon = cnvtNum( rline[117:126] ) / norm_factor_cm3
 
             # skip lines out of energy range
             if energy_keV<contminenergy or energy_keV>contmaxenergy:
@@ -300,21 +317,6 @@ def interpretDumpedLines(T):
     tabhdu = makeLineHDU(lines, T, totflux)
     return tabhdu, len(lines), len(elements), weak_lines
 
-def cnvtContNum(s):
-    """Sometimes scientific notation values in spex output are expressed
-    without an 'e', e.g.  5.62495-100, so we need to convert by hand.
-    """
-    try:
-        v = float(s)
-    except ValueError:
-        m = re.match('([0-9.]+)([+-][0-9]{3})', s)
-        if not m:
-            raise ValueError
-        else:
-            a, b = m.groups()
-            v = float(a)*10**float(b)
-    return v
-
 def readContinuum(filename):
     """Take spex dumped model spectrum file, and extract continuum."""
     outenergy = []
@@ -323,7 +325,7 @@ def readContinuum(filename):
         p = line.strip().split()
         if p[0][0] in digits:
             outenergy.append(float(p[1]))
-            outval.append(cnvtContNum(p[2]) * 1e44 / norm_factor_cm3)
+            outval.append(cnvtNum(p[2]) * 1e44 / norm_factor_cm3)
     return (np.array(outenergy), np.array(outval))
 
 def interpretDumpedContinuum(T):

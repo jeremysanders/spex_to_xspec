@@ -26,7 +26,7 @@ Where `spex` is the root specified at the top of the script.
 
  1. Python 3.3+
  2. Astropy (http://www.astropy.org/)
- 3. SPEX 3.04+ (https://www.sron.nl/astrophysics-spex). 3.04.00-3.06.00 have been tested.
+ 3. SPEX 3.06.01+ (https://www.sron.nl/astrophysics-spex). 3.06.01 has been tested.
 
 ## How it works
 
